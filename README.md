@@ -7,7 +7,6 @@ The target program will stop at `EntryPoint` with the control of `ldd.exe`, then
 
 ```
 E:\>ldd main.exe
-ldd64.exe main.exe
         0x00007ff7e7d70000    E:\main.exe
         0x00007ffc231c0000    C:\Windows\SYSTEM32\ntdll.dll
         0x00007ffc22580000    C:\Windows\System32\KERNEL32.DLL
