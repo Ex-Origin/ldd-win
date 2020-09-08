@@ -14,20 +14,20 @@ E:\>ldd main.exe
 
 E:\>ldd main2.exe
         0x00400000    E:\main2.exe
-        0x77480000    C:\Windows\SYSTEM32\ntdll.dll
-        0x75890000    C:\Windows\System32\KERNEL32.DLL
-        0x770a0000    C:\Windows\System32\KERNELBASE.dll
-        0x74da0000    C:\Windows\System32\OLEAUT32.dll
-        0x74ea0000    C:\Windows\System32\msvcp_win.dll
-        0x75260000    C:\Windows\System32\ucrtbase.dll
-        0x767d0000    C:\Windows\System32\combase.dll
-        0x75fe0000    C:\Windows\System32\RPCRT4.dll
-        0x74c50000    C:\Windows\System32\SspiCli.dll
-        0x74c40000    C:\Windows\System32\CRYPTBASE.dll
-        0x77040000    C:\Windows\System32\bcryptPrimitives.dll
-        0x74fa0000    C:\Windows\System32\sechost.dll
-        0x74a30000    C:\Windows\SYSTEM32\VCRUNTIME140.dll
-        0x72bf0000    C:\Windows\SYSTEM32\MSVCP140.dll
+        0x77070000    C:\Windows\SysWOW64\ntdll.dll
+        0x74FD0000    C:\Windows\SysWOW64\KERNEL32.DLL
+        0x76E60000    C:\Windows\SysWOW64\KERNELBASE.dll
+        0x763A0000    C:\Windows\SysWOW64\OLEAUT32.dll
+        0x74AF0000    C:\Windows\SysWOW64\msvcp_win.dll
+        0x749D0000    C:\Windows\SysWOW64\ucrtbase.dll
+        0x74B90000    C:\Windows\SysWOW64\combase.dll
+        0x75E40000    C:\Windows\SysWOW64\RPCRT4.dll
+        0x74840000    C:\Windows\SysWOW64\SspiCli.dll
+        0x74830000    C:\Windows\SysWOW64\CRYPTBASE.dll
+        0x75D60000    C:\Windows\SysWOW64\bcryptPrimitives.dll
+        0x75AD0000    C:\Windows\SysWOW64\sechost.dll
+        0x723D0000    C:\Windows\SysWOW64\MSVCP140.dll
+        0x746C0000    C:\Windows\SysWOW64\vcruntime140.dll
 ```
 
 Email: 2462148389@qq.com
