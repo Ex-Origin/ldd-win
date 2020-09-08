@@ -3,7 +3,7 @@
 
 A similar Linux ldd command for EXE files.
 
-The target program will stop at `EntryPoint` with the control of `ldd.exe`, then `ldd.exe` will read dll information from this program's PEB.
+Use Windows Debug API to get dll information.
 
 ```
 E:\>ldd main.exe
