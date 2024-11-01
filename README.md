@@ -1,6 +1,11 @@
 
 ## ldd-win
 
+It is recommended to use MinGW for building
+```
+make CC=C:\mingw64\bin\gcc.exe
+```
+
 A similar Linux ldd command for EXE files.
 
 Use Windows Debug API to get dll information.
