@@ -141,6 +141,7 @@ BOOL FileInDir(CHAR *dir, CHAR *file)
 
 #define MAX_FULL_PATH 32767
 static BOOL searchInPath = FALSE;
+static BOOL showAddresses = FALSE;
 static int execNameArgIdx = -1;
 
 BOOL GetFileFullName(CHAR *name, CHAR *to, int toSize, int *resSize)
@@ -218,7 +219,7 @@ BOOL GetFileFullName(CHAR *name, CHAR *to, int toSize, int *resSize)
 
 void ParseCommandLine(int argc, char **argv)
 {
-    if (argc < 2 || argc > 3)
+    if (argc < 2 || argc > 4)
     {
 see_help:
         fprintf(stderr, "See help :-()");
@@ -233,12 +234,17 @@ see_help:
             printf("Usage: %s [-p] FILE\n", argv[0]);
             printf("Note: use file name with \".exe\"\n");
             printf("    -p            if not found locally, then search in PATH\n");
+            printf("    -a            show library addresses\n");
             printf("    -h, --help    show help\n");
             exit(0);
         }
         else if (!strcmp(argv[i], "-p"))
         {
             searchInPath = TRUE;
+        }
+        else if (!strcmp(argv[i], "-a"))
+        {
+            showAddresses = TRUE;
         }
         else
         {
@@ -362,7 +368,7 @@ int main(int argc, char **argv)
                 break;
 
             default:
-                printf("Unknow Event![%x]\n\n", DebugEv.u.Exception.ExceptionRecord.ExceptionCode);
+                printf("Unknow Event![0x%x]\n\n", DebugEv.u.Exception.ExceptionRecord.ExceptionCode);
                 exit(EXIT_FAILURE);
                 break;
             }
@@ -380,25 +386,60 @@ int main(int argc, char **argv)
             {
                 if (DebugEv.u.LoadDll.fUnicode)
                 {
-                    wprintf(L"        0x%p    %s\n", lpBaseOfDll, (unsigned short *)OutputBuf);
+                    if (showAddresses)
+                    {
+                        wprintf(L"        0x%p    %s\n", lpBaseOfDll, (unsigned short *)OutputBuf);
+                    }
+                    else
+                    {
+                        wprintf(L"%s\n", (unsigned short *)OutputBuf);
+                    }
                 }
                 else
                 {
-                    printf("        0x%p    %s\n", lpBaseOfDll, OutputBuf);
+                    if (showAddresses)
+                    {
+                        printf("        0x%p    %s\n", lpBaseOfDll, (unsigned short *)OutputBuf);
+                    }
+                    else
+                    {
+                        printf("%s\n", (unsigned short *)OutputBuf);
+                    }
                 }
             }
             else if (GetModuleFileNameExA(pi.hProcess, (HMODULE)lpBaseOfDll, OutputBuf, sizeof(OutputBuf)) != 0)
             {
-                printf("        0x%p    %s\n", lpBaseOfDll, OutputBuf);
+                if (showAddresses)
+                {
+                    printf("        0x%p    %s\n", lpBaseOfDll, OutputBuf);
+                }
+                else
+                {
+                    printf("%s\n", OutputBuf);
+                }
             }
             else if (GetFileNameFromHandle(DebugEv.u.LoadDll.hFile, (TCHAR *)OutputBuf) != 0)
             {
-                wprintf(L"        0x%p    %hs\n", lpBaseOfDll, (TCHAR *)OutputBuf);
+                if (showAddresses)
+                {
+                    wprintf(L"        0x%p    %hs\n", lpBaseOfDll, (TCHAR *)OutputBuf);
+                }
+                else
+                {
+                    wprintf(L"%hs\n", (TCHAR *)OutputBuf);
+                }
             }
         }
         else if (DebugEv.dwDebugEventCode == CREATE_PROCESS_DEBUG_EVENT && GetFileNameFromHandle(DebugEv.u.CreateProcessInfo.hFile, (TCHAR *)OutputBuf) != 0)
         {
-            wprintf(L"        0x%p    %hs\n", DebugEv.u.CreateProcessInfo.lpBaseOfImage, (TCHAR *)OutputBuf);
+            if (showAddresses)
+            {
+                wprintf(L"        0x%p    %hs\n", DebugEv.u.CreateProcessInfo.lpBaseOfImage, (TCHAR *)OutputBuf);
+            }
+            else
+            {
+                wprintf(L"%hs\n", (TCHAR *)OutputBuf);
+            }
         }
         ASSERT(ContinueDebugEvent(DebugEv.dwProcessId, DebugEv.dwThreadId, DBG_CONTINUE) != 0);
     }
