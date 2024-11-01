@@ -608,5 +608,8 @@ int main(int argc, char **argv)
     }
     TerminateProcess(pi.hProcess, 0);
 
+    if (copyToDirPathW) free(copyToDirPathW);
+    if (copyToDirPathA) free(copyToDirPathA);
+
     return 0;
 }
