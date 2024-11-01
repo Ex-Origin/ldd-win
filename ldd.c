@@ -5,6 +5,7 @@
 #include <string.h>
 #include <psapi.h>
 #include <tchar.h>
+#include <shlwapi.h>
 #include <strsafe.h>
 
 #define ASSERT(expression)                                                                                                                            \
@@ -12,6 +13,7 @@
         if (!(expression))                                                                                                                            \
         {                                                                                                                                             \
             fprintf(stderr, "\"" #expression "\" failed with error code %d in %s:%d (function: %s)\n", GetLastError(), __FILE__, __LINE__, __func__); \
+            fflush(stderr);                                                                                                                           \
             ExitProcess(EXIT_FAILURE);                                                                                                                \
         }                                                                                                                                             \
     }
@@ -96,9 +98,166 @@ BOOL GetFileNameFromHandle(HANDLE hFile, TCHAR *pszFilename)
     return TRUE;
 }
 
+int GetCharCountInStr(CHAR *str, char ch)
+{
+    int cnt = 0;
+    while (*str) cnt += (int)(*str++ == ch);
+    return cnt;
+}
+
+BOOL FileInDir(CHAR *dir, CHAR *file)
+{
+    WIN32_FIND_DATA structWFD;
+    HANDLE hSrch;
+    BOOL ret = FALSE;
+
+    //ASSERT((hSrch = FindFirstFileA(dir, &structWFD)) != INVALID_HANDLE_VALUE);
+    hSrch = FindFirstFileA(dir, &structWFD);
+    if (hSrch == INVALID_HANDLE_VALUE) // if dir in PATH, but dir not exists now
+    {
+        if (GetLastError() == ERROR_PATH_NOT_FOUND)
+        {
+            return FALSE;
+        }
+        else
+        {
+            fprintf(stderr, "%d:%s:FindFirstFileA error, code: %d", __LINE__, __func__, GetLastError());
+            exit(1);
+        }
+    }
+
+    do
+    {
+        if (!strcmp(structWFD.cFileName, file)) 
+        {
+            ret = TRUE;
+            break;
+        }
+    } while (FindNextFileA(hSrch, &structWFD));
+
+    FindClose(hSrch);
+    return ret;
+}
+
+#define MAX_FULL_PATH 32767
+static BOOL searchInPath = FALSE;
+static int execNameArgIdx = -1;
+
+BOOL GetFileFullName(CHAR *name, CHAR *to, int toSize, int *resSize)
+{
+    DWORD n;
+    
+    if (PathFileExistsA(name))
+    {
+        if (!(n = GetFullPathNameA(name, toSize, to, 0)))
+        {
+            fprintf(stderr, "GetFullPathNameW error, code:%d", GetLastError());
+            exit(1);
+        }
+    }
+    else if (searchInPath)
+    {
+        // search in PATH
+
+        CHAR envPathBuf[MAX_FULL_PATH + 3]; // +3 for adding "\*" for correct search
+        int pathElemsCnt;
+        memset(envPathBuf, 0, sizeof(envPathBuf));
+
+        if (!(n = GetEnvironmentVariableA("PATH", envPathBuf, MAX_FULL_PATH)))
+        {
+            fprintf(stderr, "GetFullPathNameW error, code:%d", GetLastError());
+            exit(1);
+        }
+        envPathBuf[n] = ';';
+        envPathBuf[n+1] = '\0';
+        pathElemsCnt = GetCharCountInStr(envPathBuf, ';');
+
+        CHAR *curElem = envPathBuf;
+        while (pathElemsCnt--) {
+            CHAR *nextElem = strchr(curElem, ';'); // get next ';'
+            char saveFirstChar = nextElem[1];
+            char saveSecondChar = nextElem[2];
+
+            // for correct searching
+            nextElem[0] = '\\';
+            nextElem[1] = '*';
+            nextElem[2] = '\0';
+
+            if (FileInDir(curElem, name))
+            {
+                nextElem[1] = '\0';
+                n = snprintf(to, toSize, "%s%s", curElem, name);
+                break;
+            }
+
+            nextElem[0] = ';';
+            nextElem[1] = saveFirstChar;
+            nextElem[2] = saveSecondChar;
+
+            curElem = nextElem + 1;
+        }
+
+        if (pathElemsCnt == -1)
+        {
+            // name not founded
+            return FALSE;
+        }
+    }
+    else
+    {
+        return FALSE;
+    }
+
+    if (resSize)
+    {
+        *resSize = n;
+    }
+
+    return n < toSize;
+}
+
+void ParseCommandLine(int argc, char **argv)
+{
+    if (argc < 2 || argc > 3)
+    {
+see_help:
+        fprintf(stderr, "See help :-()");
+        exit(1);
+    }
+
+    int i;
+    for (i = 1; i < argc; i++)
+    {
+        if (!strcmp(argv[i], "--help") || !strcmp(argv[i], "-h")) 
+        {
+            printf("Usage: %s [-p] FILE\n", argv[0]);
+            printf("Note: use file name with \".exe\"\n");
+            printf("    -p            if not found locally, then search in PATH\n");
+            printf("    -h, --help    show help\n");
+            exit(0);
+        }
+        else if (!strcmp(argv[i], "-p"))
+        {
+            searchInPath = TRUE;
+        }
+        else
+        {
+            if (execNameArgIdx != -1)
+            {
+                goto see_help;
+            }
+            else
+            {
+                execNameArgIdx = i;
+            }
+        }
+    }
+}
+
 int main(int argc, char **argv)
 {
     CHAR buf[0x200], OutputBuf[0x1000];
+    CHAR execName[8192];
     IMAGE_DOS_HEADER ImageDosHeader;
     IMAGE_NT_HEADERS ImageNtHeaders;
     HANDLE StdoutHandle, StderrHandle;
@@ -118,15 +277,11 @@ int main(int argc, char **argv)
 
     int i;
 
-    StdoutHandle = GetStdHandle(STD_OUTPUT_HANDLE);
-    StderrHandle = GetStdHandle(STD_ERROR_HANDLE);
-    if (argc < 2)
-    {
-        WriteFile(StderrHandle, "Usage: ldd FILE\n", 16, &Dresult, NULL);
-        ExitProcess(EXIT_FAILURE);
-    }
+    ParseCommandLine(argc, argv);
 
-    ASSERT((FileHandle = CreateFileA(argv[1], GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL)) != INVALID_HANDLE_VALUE);
+    ASSERT(GetFileFullName(argv[execNameArgIdx], execName, sizeof(execName), 0));
+
+    ASSERT((FileHandle = CreateFileA(execName, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL)) != INVALID_HANDLE_VALUE);
     ASSERT(ReadFile(FileHandle, &ImageDosHeader, sizeof(ImageDosHeader), &Dresult, NULL) != 0);
     ASSERT(SetFilePointer(FileHandle, ImageDosHeader.e_lfanew, NULL, FILE_BEGIN) != INVALID_SET_FILE_POINTER);
     ASSERT(ReadFile(FileHandle, &ImageNtHeaders, sizeof(ImageNtHeaders), &Dresult, NULL) != 0);
@@ -136,7 +291,7 @@ int main(int argc, char **argv)
     ZeroMemory(&si, sizeof(si));
     si.cb = sizeof(si);
     ZeroMemory(&pi, sizeof(pi));
-    ASSERT(CreateProcessA(NULL, argv[1], NULL, NULL, FALSE, DEBUG_PROCESS | DEBUG_ONLY_THIS_PROCESS | CREATE_SUSPENDED, NULL, NULL, &si, &pi) == TRUE);
+    ASSERT(CreateProcessA(NULL, execName, NULL, NULL, FALSE, DEBUG_PROCESS | DEBUG_ONLY_THIS_PROCESS | CREATE_SUSPENDED, NULL, NULL, &si, &pi) == TRUE);
     ASSERT(DebugSetProcessKillOnExit(TRUE) != 0);
     NtQueryInformationProcessHook = (NTSTATUS(__stdcall *)(HANDLE, PROCESSINFOCLASS, PVOID, ULONG, PULONG))GetProcAddress(LoadLibraryA("ntdll.dll"), "NtQueryInformationProcess");
     ASSERT(NtQueryInformationProcessHook != NULL);
@@ -207,7 +362,7 @@ int main(int argc, char **argv)
                 break;
 
             default:
-                printf("Unknow Event!\n\n");
+                printf("Unknow Event![%x]\n\n", DebugEv.u.Exception.ExceptionRecord.ExceptionCode);
                 exit(EXIT_FAILURE);
                 break;
             }
