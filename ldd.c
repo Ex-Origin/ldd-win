@@ -143,6 +143,9 @@ BOOL FileInDir(CHAR *dir, CHAR *file)
 static BOOL searchInPath = FALSE;
 static BOOL showAddresses = FALSE;
 static int execNameArgIdx = -1;
+static CHAR *copyToDirPathA = NULL;
+static WCHAR *copyToDirPathW = NULL;
+static BOOL ignoreExceptions = FALSE;
 
 BOOL GetFileFullName(CHAR *name, CHAR *to, int toSize, int *resSize)
 {
@@ -217,9 +220,17 @@ BOOL GetFileFullName(CHAR *name, CHAR *to, int toSize, int *resSize)
     return n < toSize;
 }
 
+BOOL DirectoryExists(CHAR *szPath)
+{
+  DWORD dwAttrib = GetFileAttributesA(szPath);
+
+  return (dwAttrib != INVALID_FILE_ATTRIBUTES && 
+         (dwAttrib & FILE_ATTRIBUTE_DIRECTORY));
+}
+
 void ParseCommandLine(int argc, char **argv)
 {
-    if (argc < 2 || argc > 4)
+    if (argc < 2)
     {
 see_help:
         fprintf(stderr, "See help :-()");
@@ -231,10 +242,12 @@ see_help:
     {
         if (!strcmp(argv[i], "--help") || !strcmp(argv[i], "-h")) 
         {
-            printf("Usage: %s [-p] FILE\n", argv[0]);
-            printf("Note: use file name with \".exe\"\n");
+            printf("Usage: %s [-p] [-a] [-c target-dir] FILE\n", argv[0]);
+            printf("Note: use file name with \".exe\" and set in tail of cmdline\n");
             printf("    -p            if not found locally, then search in PATH\n");
             printf("    -a            show library addresses\n");
+            printf("    -c            copy files to directory\n");
+            printf("    -i            ignore exception from child process\n");
             printf("    -h, --help    show help\n");
             exit(0);
         }
@@ -245,6 +258,39 @@ see_help:
         else if (!strcmp(argv[i], "-a"))
         {
             showAddresses = TRUE;
+        }
+        else if (!strcmp(argv[i], "-c"))
+        {
+            CHAR *s;
+            int len;
+            int k;
+            if (i+1 >= argc)
+            {
+                fprintf(stderr, "-c requered value\n");
+                exit(1);
+            }
+
+            s = argv[i+1];
+            if (!DirectoryExists(s))
+            {
+                fprintf(stderr, "directory %s now exists\n", s);
+                exit(1);
+            }
+
+            len = strlen(s);
+            ASSERT((copyToDirPathA = (CHAR*)malloc(len+1)));
+            ASSERT((copyToDirPathW = (WCHAR*)malloc((len+1) * sizeof(WCHAR))));
+            
+            for (k = 0; k < len + 1 /* with '\0' */; ++k)
+            {
+                copyToDirPathA[k] = s[k];
+                copyToDirPathW[k] = (WCHAR)s[k];
+            }
+            i++;
+        }
+        else if (!strcmp(argv[i], "-i"))
+        {
+            ignoreExceptions = TRUE;
         }
         else
         {
@@ -258,6 +304,88 @@ see_help:
             }
         }
     }
+}
+
+WCHAR *StrCharFromEndW(WCHAR *str, WCHAR ch)
+{
+    WCHAR *ptr = str;
+    WCHAR *savematch;
+
+    do
+    {
+        savematch = ptr;
+        ptr = StrChrW(ptr+1, ch);
+    } while (ptr);
+    
+    return *savematch == ch ? savematch : NULL;
+}
+
+CHAR *StrCharFromEndA(CHAR *str, CHAR ch)
+{
+    CHAR *ptr = str;
+    CHAR *savematch;
+
+    do
+    {
+        savematch = ptr;
+        ptr = StrChrA(ptr+1, ch);
+    } while (ptr);
+
+    return *savematch == ch ? savematch : NULL;
+}
+
+BOOL CopyToDirA(CHAR *fileFullPath, CHAR *toDir)
+{
+    CHAR *fileName; 
+    CHAR *resPathTo;
+    CHAR *ptr;
+    int fileLen;
+    int toDirLen;
+    BOOL ret;
+    
+    ASSERT((fileName = StrCharFromEndA(fileFullPath, '\\')) != NULL);
+    // if (!(fileName = StrCharFromEndA(fileFullPath, '\\')))
+    // {
+    //     printf("strcharA err\t");
+    //     return FALSE;
+    // }
+    fileName++;
+
+    fileLen = lstrlenA(fileName);
+    toDirLen = lstrlenA(toDir);
+    ASSERT((resPathTo = (CHAR*)malloc(fileLen + toDirLen + 2)) != NULL);
+
+    wsprintfA(resPathTo, "%s\\%s", toDir, fileName);
+    ret = CopyFileA(fileFullPath, resPathTo, FALSE);
+    free(resPathTo);
+    return ret;
+}
+
+BOOL CopyToDirW(WCHAR *fileFullPath, WCHAR *toDir)
+{
+    WCHAR *fileName; 
+    WCHAR *resPathTo;
+    WCHAR *ptr;
+    int fileLen;
+    int toDirLen;
+    BOOL ret;
+
+    ASSERT((fileName = StrCharFromEndW(fileFullPath, '\\')) != NULL);
+    // if (!(fileName = StrCharFromEndW(fileFullPath, (WCHAR)'\\')))
+    // {
+    //     printf("strcharW err\t");
+    //     return FALSE;
+    // }
+    fileName++;
+
+    fileLen = lstrlenW(fileName);
+    toDirLen = lstrlenW(toDir);
+    ASSERT((resPathTo = (WCHAR*)malloc((fileLen + toDirLen + 2) * sizeof(WCHAR))) != NULL);
+
+    wsprintfW(resPathTo, L"%s\\%s", toDir, fileName);
+    ret = CopyFileW(fileFullPath, resPathTo, FALSE);
+    free(resPathTo);
+    return ret;
 }
 
 int main(int argc, char **argv)
@@ -280,8 +408,6 @@ int main(int argc, char **argv)
 
     STARTUPINFO si;
     PROCESS_INFORMATION pi;
-
-    int i;
 
     ParseCommandLine(argc, argv);
 
@@ -315,62 +441,65 @@ int main(int argc, char **argv)
         // Process the debugging event code.
         if (DebugEv.dwDebugEventCode == EXCEPTION_DEBUG_EVENT)
         {
-            switch (DebugEv.u.Exception.ExceptionRecord.ExceptionCode)
+            if (!ignoreExceptions)
             {
-            case EXCEPTION_ACCESS_VIOLATION:
-                printf("EXCEPTION_ACCESS_VIOLATION:    The thread tried to read from or write to a virtual address for which it does not have the appropriate access.\n\n");
-                exit(EXIT_SUCCESS);
-                break;
+                switch (DebugEv.u.Exception.ExceptionRecord.ExceptionCode)
+                {
+                case EXCEPTION_ACCESS_VIOLATION:
+                    printf("EXCEPTION_ACCESS_VIOLATION:    The thread tried to read from or write to a virtual address for which it does not have the appropriate access.\n\n");
+                    exit(EXIT_SUCCESS);
+                    break;
 
-            case EXCEPTION_BREAKPOINT:
+                case EXCEPTION_BREAKPOINT:
 
-                break;
+                    break;
 
-            case EXCEPTION_DATATYPE_MISALIGNMENT:
-                printf("EXCEPTION_DATATYPE_MISALIGNMENT:    The thread tried to read or write data that is misaligned on hardware that does not provide alignment. "
-                       "For example, 16-bit values must be aligned on 2-byte boundaries; 32-bit values on 4-byte boundaries, and so on.\n\n");
-                exit(EXIT_SUCCESS);
-                break;
+                case EXCEPTION_DATATYPE_MISALIGNMENT:
+                    printf("EXCEPTION_DATATYPE_MISALIGNMENT:    The thread tried to read or write data that is misaligned on hardware that does not provide alignment. "
+                        "For example, 16-bit values must be aligned on 2-byte boundaries; 32-bit values on 4-byte boundaries, and so on.\n\n");
+                    exit(EXIT_SUCCESS);
+                    break;
 
-            case EXCEPTION_SINGLE_STEP:
+                case EXCEPTION_SINGLE_STEP:
 
-                break;
+                    break;
 
-            case DBG_CONTROL_C:
-                ASSERT(TerminateProcess(pi.hProcess, 2) != 0);
-                exit(EXIT_SUCCESS);
-                break;
+                case DBG_CONTROL_C:
+                    ASSERT(TerminateProcess(pi.hProcess, 2) != 0);
+                    exit(EXIT_SUCCESS);
+                    break;
 
-            case EXCEPTION_FLT_INVALID_OPERATION:
-                printf("EXCEPTION_FLT_INVALID_OPERATION:    This exception represents any floating-point exception not included in this list.\n\n");
-                exit(EXIT_SUCCESS);
-                break;
+                case EXCEPTION_FLT_INVALID_OPERATION:
+                    printf("EXCEPTION_FLT_INVALID_OPERATION:    This exception represents any floating-point exception not included in this list.\n\n");
+                    exit(EXIT_SUCCESS);
+                    break;
 
-            case EXCEPTION_FLT_STACK_CHECK:
-                printf("EXCEPTION_FLT_STACK_CHECK:    The stack overflowed or underflowed as the result of a floating-point operation.\n\n");
-                exit(EXIT_SUCCESS);
-                break;
+                case EXCEPTION_FLT_STACK_CHECK:
+                    printf("EXCEPTION_FLT_STACK_CHECK:    The stack overflowed or underflowed as the result of a floating-point operation.\n\n");
+                    exit(EXIT_SUCCESS);
+                    break;
 
-            case EXCEPTION_ILLEGAL_INSTRUCTION:
-                printf("EXCEPTION_ILLEGAL_INSTRUCTION:    The thread tried to execute an invalid instruction.\n\n");
-                exit(EXIT_SUCCESS);
-                break;
+                case EXCEPTION_ILLEGAL_INSTRUCTION:
+                    printf("EXCEPTION_ILLEGAL_INSTRUCTION:    The thread tried to execute an invalid instruction.\n\n");
+                    exit(EXIT_SUCCESS);
+                    break;
 
-            case EXCEPTION_IN_PAGE_ERROR:
-                printf("EXCEPTION_IN_PAGE_ERROR:    The thread tried to access a page that was not present, and the system was unable to load the page."
-                       " For example, this exception might occur if a network connection is lost while running a program over the network.\n\n");
-                exit(EXIT_SUCCESS);
-                break;
+                case EXCEPTION_IN_PAGE_ERROR:
+                    printf("EXCEPTION_IN_PAGE_ERROR:    The thread tried to access a page that was not present, and the system was unable to load the page."
+                        " For example, this exception might occur if a network connection is lost while running a program over the network.\n\n");
+                    exit(EXIT_SUCCESS);
+                    break;
 
-            case EXCEPTION_STACK_OVERFLOW:
-                printf("EXCEPTION_STACK_OVERFLOW:    The thread used up its stack.\n\n");
-                exit(EXIT_SUCCESS);
-                break;
+                case EXCEPTION_STACK_OVERFLOW:
+                    printf("EXCEPTION_STACK_OVERFLOW:    The thread used up its stack.\n\n");
+                    exit(EXIT_SUCCESS);
+                    break;
 
-            default:
-                printf("Unknow Event![0x%x]\n\n", DebugEv.u.Exception.ExceptionRecord.ExceptionCode);
-                exit(EXIT_FAILURE);
-                break;
+                default:
+                    printf("Unknow Event![0x%x]\n\n", DebugEv.u.Exception.ExceptionRecord.ExceptionCode);
+                    exit(EXIT_FAILURE);
+                    break;
+                }
             }
 
             if ((size_t)DebugEv.u.Exception.ExceptionRecord.ExceptionAddress == ImageBaseAddress + EntryPoint)
@@ -386,6 +515,14 @@ int main(int argc, char **argv)
             {
                 if (DebugEv.u.LoadDll.fUnicode)
                 {
+                    if (copyToDirPathW)
+                    {
+                        if (CopyToDirW((WCHAR*)OutputBuf, copyToDirPathW))
+                            printf("copy success\t");
+                        else
+                            printf("copy   error\t");
+                    }
+
                     if (showAddresses)
                     {
                         wprintf(L"        0x%p    %s\n", lpBaseOfDll, (unsigned short *)OutputBuf);
@@ -397,6 +534,14 @@ int main(int argc, char **argv)
                 }
                 else
                 {
+                    if (copyToDirPathA)
+                    {
+                        if (CopyToDirA(OutputBuf, copyToDirPathA))
+                            printf("copy success\t");
+                        else
+                            printf("copy   error\t");
+                    }
+
                     if (showAddresses)
                     {
                         printf("        0x%p    %s\n", lpBaseOfDll, (unsigned short *)OutputBuf);
@@ -409,6 +554,14 @@ int main(int argc, char **argv)
             }
             else if (GetModuleFileNameExA(pi.hProcess, (HMODULE)lpBaseOfDll, OutputBuf, sizeof(OutputBuf)) != 0)
             {
+                if (copyToDirPathA)
+                {
+                    if (CopyToDirA(OutputBuf, copyToDirPathA))
+                        printf("copy success\t");
+                    else
+                        printf("copy   error\t");
+                }
+
                 if (showAddresses)
                 {
                     printf("        0x%p    %s\n", lpBaseOfDll, OutputBuf);
@@ -420,6 +573,14 @@ int main(int argc, char **argv)
             }
             else if (GetFileNameFromHandle(DebugEv.u.LoadDll.hFile, (TCHAR *)OutputBuf) != 0)
             {
+                if (copyToDirPathA)
+                {
+                    if (CopyToDirA(OutputBuf, copyToDirPathA))
+                        printf("copy success\t");
+                    else
+                        printf("copy   error\t");
+                }
+
                 if (showAddresses)
                 {
                     wprintf(L"        0x%p    %hs\n", lpBaseOfDll, (TCHAR *)OutputBuf);
@@ -432,6 +593,7 @@ int main(int argc, char **argv)
         }
         else if (DebugEv.dwDebugEventCode == CREATE_PROCESS_DEBUG_EVENT && GetFileNameFromHandle(DebugEv.u.CreateProcessInfo.hFile, (TCHAR *)OutputBuf) != 0)
         {
+    #if 0
             if (showAddresses)
             {
                 wprintf(L"        0x%p    %hs\n", DebugEv.u.CreateProcessInfo.lpBaseOfImage, (TCHAR *)OutputBuf);
@@ -440,6 +602,7 @@ int main(int argc, char **argv)
             {
                 wprintf(L"%hs\n", (TCHAR *)OutputBuf);
             }
+    #endif
         }
         ASSERT(ContinueDebugEvent(DebugEv.dwProcessId, DebugEv.dwThreadId, DBG_CONTINUE) != 0);
     }
