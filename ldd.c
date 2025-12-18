@@ -20,6 +20,14 @@
 
 #define TRAP_INSTRUCT "\xcc"
 
+// WoW64 specific exception codes (for 32-bit processes on 64-bit Windows)
+#ifndef STATUS_WX86_BREAKPOINT
+#define STATUS_WX86_BREAKPOINT 0x4000001F
+#endif
+#ifndef STATUS_WX86_SINGLE_STEP
+#define STATUS_WX86_SINGLE_STEP 0x4000001E
+#endif
+
 BOOL GetFileNameFromHandle(HANDLE hFile, TCHAR *pszFilename)
 {
     BOOL bSuccess = FALSE;
@@ -451,7 +459,15 @@ int main(int argc, char **argv)
                     break;
 
                 case EXCEPTION_BREAKPOINT:
+                    // Normal x86/x64 breakpoint - continue
+                    break;
 
+                case STATUS_WX86_BREAKPOINT:
+                    // WoW64 breakpoint (32-bit process on 64-bit Windows) - continue
+                    break;
+
+                case STATUS_WX86_SINGLE_STEP:
+                    // WoW64 single step (32-bit process on 64-bit Windows) - continue
                     break;
 
                 case EXCEPTION_DATATYPE_MISALIGNMENT:
@@ -461,7 +477,7 @@ int main(int argc, char **argv)
                     break;
 
                 case EXCEPTION_SINGLE_STEP:
-
+                    // Normal single step - continue
                     break;
 
                 case DBG_CONTROL_C:
@@ -496,8 +512,9 @@ int main(int argc, char **argv)
                     break;
 
                 default:
-                    printf("Unknow Event![0x%x]\n\n", DebugEv.u.Exception.ExceptionRecord.ExceptionCode);
-                    exit(EXIT_FAILURE);
+                    // For unknown exceptions, don't exit - just continue debugging
+                    // This allows the tool to continue enumerating DLLs
+                    fprintf(stderr, "Unknown Event [0x%x] - continuing...\n", DebugEv.u.Exception.ExceptionRecord.ExceptionCode);
                     break;
                 }
             }
