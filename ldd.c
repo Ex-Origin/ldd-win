@@ -8,6 +8,10 @@
 #include <shlwapi.h>
 #include <strsafe.h>
 
+#pragma comment(lib, "shlwapi.lib")   // PathFileExistsA, StrChrA, StrChrW
+#pragma comment(lib, "user32.lib")    // wsprintfA, wsprintfW
+#pragma comment(lib, "psapi.lib")     // GetModuleFileNameExA, GetMappedFileName
+
 #define ASSERT(expression)                                                                                                                            \
     {                                                                                                                                                 \
         if (!(expression))                                                                                                                            \
